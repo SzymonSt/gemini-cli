@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { exec, spawn, spawnSync, execSync } from 'node:child_process';
+import { exec, execSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { once } from 'node:events';
 import { debugLogger } from './debugLogger.js';
 import { coreEvents, CoreEvent, type EditorSelectedPayload } from './events.js';
 import type { DiffUpdateResult } from '../ide/ide-client.js';
+import { spawnAsync, isSpawnAsyncError } from './shell-utils.js';
 
 const execAsync = promisify(exec);
 
@@ -316,41 +317,22 @@ export async function openDiff(
     return;
   }
 
-  if (isTerminalEditor(editor)) {
-    try {
-      const result = spawnSync(diffCommand.command, diffCommand.args, {
-        stdio: 'inherit',
-      });
-      if (result.error) {
-        throw result.error;
-      }
-      if (result.status !== 0) {
-        throw new Error(`${editor} exited with code ${result.status}`);
-      }
-    } finally {
-      coreEvents.emit(CoreEvent.ExternalEditorClosed);
-    }
-    return;
-  }
-
-  return new Promise<void>((resolve, reject) => {
-    const childProcess = spawn(diffCommand.command, diffCommand.args, {
+  try {
+    await spawnAsync(diffCommand.command, diffCommand.args, {
       stdio: 'inherit',
       shell: process.platform === 'win32',
     });
-
-    childProcess.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`${editor} exited with code ${code}`));
+  } catch (err) {
+    if (isSpawnAsyncError(err)) {
+      const status = err.status;
+      if (typeof status === 'number' && status !== 0) {
+        throw new Error(`${editor} exited with code ${status}`);
       }
-    });
-
-    childProcess.on('error', (error) => {
-      reject(error);
-    });
-  });
+    }
+    throw err;
+  } finally {
+    coreEvents.emit(CoreEvent.ExternalEditorClosed);
+  }
 }
 
 /**
@@ -415,45 +397,54 @@ export async function openFileInEditor(
     `openFileInEditor: Using external editor: ${command} ${args.join(' ')} (GUI spawn: ${useGuiSpawn})`,
   );
 
-  return new Promise<{ modified: boolean }>((resolve, reject) => {
-    const wasRaw = process.stdin.isRaw;
-    if (!useGuiSpawn && wasRaw) {
-      process.stdin.setRawMode(false);
+  let beforeContent: string | undefined;
+  if (readTextFile) {
+    try {
+      beforeContent = await readTextFile(filePath);
+    } catch (err) {
+      debugLogger.debug(
+        `openFileInEditor: failed to read file before editing: ${filePath}`,
+        err,
+      );
     }
+  }
 
-    const onExit = (status: number | null, error?: Error) => {
-      if (!useGuiSpawn && wasRaw) {
-        process.stdin.setRawMode(true);
-      }
-      coreEvents.emit(CoreEvent.ExternalEditorClosed);
+  const wasRaw = process.stdin.isRaw;
+  if (!useGuiSpawn && wasRaw) {
+    process.stdin.setRawMode(false);
+  }
 
-      if (error) {
-        reject(error);
-      } else if (status !== null && status !== 0) {
-        reject(new Error(`Editor exited with status ${status}`));
-      } else {
-        // Assume modified if external editor was used and closed successfully
-        resolve({ modified: true });
-      }
-    };
+  try {
+    await spawnAsync(command, args, {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
 
-    if (useGuiSpawn) {
-      const child = spawn(command, args, {
-        stdio: 'inherit',
-        shell: process.platform === 'win32',
-      });
-      child.on('close', (code) => onExit(code));
-      child.on('error', (err) => onExit(null, err));
-    } else {
+    let modified = true;
+    if (readTextFile && beforeContent !== undefined) {
       try {
-        const result = spawnSync(command, args, {
-          stdio: 'inherit',
-          shell: process.platform === 'win32',
-        });
-        onExit(result.status, result.error || undefined);
-      } catch (err: unknown) {
-        onExit(null, err instanceof Error ? err : new Error(String(err)));
+        const afterContent = await readTextFile(filePath);
+        modified = beforeContent !== afterContent;
+      } catch (err) {
+        debugLogger.debug(
+          `openFileInEditor: failed to read file after editing: ${filePath}`,
+          err,
+        );
       }
     }
-  });
+    return { modified };
+  } catch (err) {
+    if (isSpawnAsyncError(err)) {
+      const status = err.status;
+      if (typeof status === 'number' && status !== 0) {
+        throw new Error(`Editor exited with status ${status}`);
+      }
+    }
+    throw err;
+  } finally {
+    if (!useGuiSpawn && wasRaw) {
+      process.stdin.setRawMode(true);
+    }
+    coreEvents.emit(CoreEvent.ExternalEditorClosed);
+  }
 }

@@ -8,11 +8,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { quote } from 'shell-quote';
-import {
-  spawn,
-  spawnSync,
-  type SpawnOptionsWithoutStdio,
-} from 'node:child_process';
+import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
 import * as readline from 'node:readline';
 import type { Node, Tree } from 'web-tree-sitter';
 import { Language, Parser, Query } from 'web-tree-sitter';
@@ -728,6 +724,20 @@ export function stripShellWrapper(command: string): string {
  * @returns true if command substitution would be executed by bash
  */
 /**
+ * Error thrown by spawnAsync when a command fails.
+ */
+export interface SpawnAsyncError extends Error {
+  status?: number | null;
+}
+
+/**
+ * Type guard for SpawnAsyncError.
+ */
+export function isSpawnAsyncError(err: unknown): err is SpawnAsyncError {
+  return err instanceof Error && 'status' in err;
+}
+
+/**
  * Determines whether a given shell command is allowed to execute based on
  * the tool's configuration including allowlists and blocklists.
  *
@@ -738,29 +748,52 @@ export function stripShellWrapper(command: string): string {
  * @param config The application configuration.
  * @returns An object with 'allowed' boolean and optional 'reason' string if not allowed.
  */
+/**
+ * Executes a command asynchronously and returns its output.
+ *
+ * This is the preferred way to execute shell commands as it provides consistent
+ * error handling and promise management.
+ *
+ * NOTE: When using `stdio: 'inherit'`, `stdout` and `stderr` will be empty strings
+ * because the output is piped directly to the parent's terminal. This is useful
+ * for interactive commands like external editors.
+ *
+ * @param command The command to execute.
+ * @param args The arguments for the command.
+ * @param options Spawn options.
+ * @returns A promise that resolves with the command's output or rejects on error/non-zero exit.
+ */
 export const spawnAsync = (
   command: string,
   args: string[],
-  options?: SpawnOptionsWithoutStdio,
+  options?: SpawnOptions,
 ): Promise<{ stdout: string; stderr: string }> =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, options);
+    const child = spawn(command, args, options ?? {});
     let stdout = '';
     let stderr = '';
 
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
+    if (child.stdout) {
+      child.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+    }
 
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
+    if (child.stderr) {
+      child.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+    }
 
     child.on('close', (code) => {
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        reject(new Error(`Command failed with exit code ${code}:\n${stderr}`));
+        const error: SpawnAsyncError = new Error(
+          `Command failed with exit code ${code}:\n${stderr}`,
+        );
+        error.status = code;
+        reject(error);
       }
     });
 
@@ -780,7 +813,7 @@ export const spawnAsync = (
 export async function* execStreaming(
   command: string,
   args: string[],
-  options?: SpawnOptionsWithoutStdio & {
+  options?: SpawnOptions & {
     signal?: AbortSignal;
     allowedExitCodes?: number[];
   },
@@ -791,6 +824,10 @@ export async function* execStreaming(
     windowsHide: true,
   });
 
+  if (!child.stdout) {
+    throw new Error('Process spawned without stdout stream');
+  }
+
   const rl = readline.createInterface({
     input: child.stdout,
     terminal: false,
@@ -800,12 +837,14 @@ export async function* execStreaming(
   let stderrTotalBytes = 0;
   const MAX_STDERR_BYTES = 20 * 1024; // 20KB limit
 
-  child.stderr.on('data', (chunk) => {
-    if (stderrTotalBytes < MAX_STDERR_BYTES) {
-      errorChunks.push(chunk);
-      stderrTotalBytes += chunk.length;
-    }
-  });
+  if (child.stderr) {
+    child.stderr.on('data', (chunk: unknown) => {
+      if (stderrTotalBytes < MAX_STDERR_BYTES && Buffer.isBuffer(chunk)) {
+        errorChunks.push(chunk);
+        stderrTotalBytes += chunk.length;
+      }
+    });
+  }
 
   let error: Error | null = null;
   child.on('error', (err) => {

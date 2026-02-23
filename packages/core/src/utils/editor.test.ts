@@ -22,10 +22,11 @@ import {
   isEditorAvailable,
   isEditorAvailableAsync,
   resolveEditorAsync,
+  openFileInEditor,
   type EditorType,
 } from './editor.js';
 import { coreEvents, CoreEvent } from './events.js';
-import { exec, execSync, spawn, spawnSync } from 'node:child_process';
+import { exec, execSync, spawn } from 'node:child_process';
 import { debugLogger } from './debugLogger.js';
 
 vi.mock('child_process', () => ({
@@ -409,14 +410,22 @@ describe('editor utils', () => {
     const terminalEditors: EditorType[] = ['vim', 'neovim', 'emacs', 'hx'];
 
     for (const editor of terminalEditors) {
-      it(`should call spawnSync for ${editor}`, async () => {
+      it(`should call spawn for ${editor}`, async () => {
+        const mockSpawnOn = vi.fn((event, cb) => {
+          if (event === 'close') {
+            cb(0);
+          }
+        });
+        (spawn as Mock).mockReturnValue({ on: mockSpawnOn });
+
         await openDiff('old.txt', 'new.txt', editor);
         const diffCommand = getDiffCommand('old.txt', 'new.txt', editor)!;
-        expect(spawnSync).toHaveBeenCalledWith(
+        expect(spawn).toHaveBeenCalledWith(
           diffCommand.command,
           diffCommand.args,
           {
             stdio: 'inherit',
+            shell: process.platform === 'win32',
           },
         );
       });
@@ -708,6 +717,90 @@ describe('editor utils', () => {
       const result = await resolvePromise;
       expect(result).toBe('vim');
       expect(emitSpy).toHaveBeenCalledWith(CoreEvent.RequestEditorSelection);
+    });
+  });
+
+  describe('openFileInEditor', () => {
+    it('should return modified: true when file content changes', async () => {
+      const readTextFile = vi
+        .fn()
+        .mockResolvedValueOnce('old content')
+        .mockResolvedValueOnce('new content');
+
+      const mockSpawnOn = vi.fn((event, cb) => {
+        if (event === 'close') {
+          setTimeout(() => cb(0), 0);
+        }
+      });
+      (spawn as Mock).mockReturnValue({ on: mockSpawnOn });
+
+      const result = await openFileInEditor('test.txt', {
+        preferredEditor: 'vscode',
+        readTextFile,
+      });
+
+      expect(result.modified).toBe(true);
+      expect(readTextFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('should return modified: false when file content remains the same', async () => {
+      const readTextFile = vi
+        .fn()
+        .mockResolvedValueOnce('same content')
+        .mockResolvedValueOnce('same content');
+
+      const mockSpawnOn = vi.fn((event, cb) => {
+        if (event === 'close') {
+          setTimeout(() => cb(0), 0);
+        }
+      });
+      (spawn as Mock).mockReturnValue({ on: mockSpawnOn });
+
+      const result = await openFileInEditor('test.txt', {
+        preferredEditor: 'vscode',
+        readTextFile,
+      });
+
+      expect(result.modified).toBe(false);
+      expect(readTextFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('should return modified: true when readTextFile is not provided (fallback)', async () => {
+      const mockSpawnOn = vi.fn((event, cb) => {
+        if (event === 'close') {
+          setTimeout(() => cb(0), 0);
+        }
+      });
+      (spawn as Mock).mockReturnValue({ on: mockSpawnOn });
+
+      const result = await openFileInEditor('test.txt', {
+        preferredEditor: 'vscode',
+      });
+
+      expect(result.modified).toBe(true);
+    });
+
+    it('should use spawn for terminal editors and detect modification', async () => {
+      const readTextFile = vi
+        .fn()
+        .mockResolvedValueOnce('old content')
+        .mockResolvedValueOnce('new content');
+
+      const mockSpawnOn = vi.fn((event, cb) => {
+        if (event === 'close') {
+          setTimeout(() => cb(0), 0);
+        }
+      });
+      (spawn as Mock).mockReturnValue({ on: mockSpawnOn });
+
+      const result = await openFileInEditor('test.txt', {
+        preferredEditor: 'vim',
+        readTextFile,
+      });
+
+      expect(result.modified).toBe(true);
+      expect(spawn).toHaveBeenCalled();
+      expect(readTextFile).toHaveBeenCalledTimes(2);
     });
   });
 });

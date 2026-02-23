@@ -153,7 +153,7 @@ export const ExitPlanModeDialog: React.FC<ExitPlanModeDialogProps> = ({
   const planState = usePlanContent(planPath, config);
   const [showLoading, setShowLoading] = useState(false);
   const [isModified, setIsModified] = useState(false);
-
+  const [isEditing, setIsEditing] = useState(false);
   useEffect(() => {
     if (planState.status !== PlanStatus.Loading) {
       setShowLoading(false);
@@ -168,6 +168,8 @@ export const ExitPlanModeDialog: React.FC<ExitPlanModeDialogProps> = ({
   }, [planState.status]);
 
   const performOpenInEditor = useCallback(async () => {
+    if (isEditing) return;
+    setIsEditing(true);
     try {
       const ideClient = await IdeClient.getInstance();
       const preferredEditorRaw = settings.merged.general.preferredEditor;
@@ -196,8 +198,16 @@ export const ExitPlanModeDialog: React.FC<ExitPlanModeDialogProps> = ({
         '[ExitPlanModeDialog] external editor error',
         err,
       );
+    } finally {
+      setIsEditing(false);
     }
-  }, [planPath, settings, config, planState]);
+  }, [
+    isEditing,
+    settings.merged.general.preferredEditor,
+    planPath,
+    config,
+    planState,
+  ]);
 
   const handleOpenInEditor = useCallback(() => {
     void performOpenInEditor();
@@ -226,7 +236,7 @@ export const ExitPlanModeDialog: React.FC<ExitPlanModeDialogProps> = ({
       return false;
     },
     {
-      isActive: planState.status === PlanStatus.Loaded,
+      isActive: planState.status === PlanStatus.Loaded && !isEditing,
       priority: KeypressPriority.Critical,
     },
   );
