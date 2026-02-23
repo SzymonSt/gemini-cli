@@ -145,12 +145,14 @@ describe('PromptProvider', () => {
         name: 'builtin-skill',
         description: 'Builtin description',
         location: '/path/to/builtin',
+        body: 'Skill body',
         isBuiltin: true,
       },
       {
         name: 'workspace-skill',
         description: 'Workspace description',
         location: '/path/to/workspace',
+        body: 'Skill body',
         isBuiltin: false,
       },
     ]);

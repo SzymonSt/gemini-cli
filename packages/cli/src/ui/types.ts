@@ -500,6 +500,7 @@ export interface ConfirmationRequest {
 
 export interface LoopDetectionConfirmationRequest {
   onComplete: (result: { userSelection: 'disable' | 'keep' }) => void;
+  reason?: string;
 }
 
 export interface PermissionConfirmationRequest {

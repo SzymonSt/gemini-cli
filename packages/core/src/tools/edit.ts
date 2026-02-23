@@ -352,14 +352,20 @@ export function getErrorReplaceResult(
     undefined;
   if (occurrences === 0) {
     error = {
-      display: `Failed to edit, could not find the string to replace.`,
-      raw: `Failed to edit, 0 occurrences found for old_string in ${params.file_path}. Ensure you're not escaping content incorrectly and check whitespace, indentation, and context. Use ${READ_FILE_TOOL_NAME} tool to verify.`,
+      display: `Failed to edit, could not find the exact string to replace.`,
+      raw: `Failed to edit: 0 occurrences of 'old_string' found in ${params.file_path}.
+TIP: You MUST match the file content EXACTLY, including whitespace, indentation, and newlines. 
+To fix this:
+1. Use ${READ_FILE_TOOL_NAME} with specific line ranges to get the current literal content.
+2. Ensure you didn't accidentally include omission placeholders (like '...') in 'old_string'.
+3. If the file is large, only include the minimal unique context needed for the replacement.`,
       type: ToolErrorType.EDIT_NO_OCCURRENCE_FOUND,
     };
   } else if (!params.allow_multiple && occurrences !== 1) {
     error = {
       display: `Failed to edit, expected 1 occurrence but found ${occurrences}.`,
-      raw: `Failed to edit, Expected 1 occurrence but found ${occurrences} for old_string in file: ${params.file_path}. If you intended to replace multiple occurrences, set 'allow_multiple' to true.`,
+      raw: `Failed to edit: Expected 1 occurrence but found ${occurrences} for 'old_string' in ${params.file_path}.
+TIP: If you intended to replace multiple identical blocks, set 'allow_multiple' to true. If you only intended to replace one, your 'old_string' is too generic; add more surrounding context to make it unique.`,
       type: ToolErrorType.EDIT_EXPECTED_OCCURRENCE_MISMATCH,
     };
   } else if (finalOldString === finalNewString) {

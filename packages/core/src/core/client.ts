@@ -634,9 +634,12 @@ export class GeminiClient {
     const controller = new AbortController();
     const linkedSignal = AbortSignal.any([signal, controller.signal]);
 
-    const loopDetected = await this.loopDetector.turnStarted(signal);
-    if (loopDetected) {
-      yield { type: GeminiEventType.LoopDetected };
+    const loopDetectedReason = await this.loopDetector.turnStarted(signal);
+    if (loopDetectedReason) {
+      yield {
+        type: GeminiEventType.LoopDetected,
+        value: { reason: loopDetectedReason },
+      };
       return turn;
     }
 
@@ -688,8 +691,12 @@ export class GeminiClient {
     let isInvalidStream = false;
 
     for await (const event of resultStream) {
-      if (this.loopDetector.addAndCheck(event)) {
-        yield { type: GeminiEventType.LoopDetected };
+      const loopDetectedReason = this.loopDetector.addAndCheck(event);
+      if (loopDetectedReason) {
+        yield {
+          type: GeminiEventType.LoopDetected,
+          value: { reason: loopDetectedReason },
+        };
         controller.abort();
         return turn;
       }

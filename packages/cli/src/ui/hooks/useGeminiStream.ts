@@ -505,11 +505,13 @@ export const useGeminiStream = (
   const lastQueryRef = useRef<PartListUnion | null>(null);
   const lastPromptIdRef = useRef<string | null>(null);
   const loopDetectedRef = useRef(false);
+  const loopDetectedReasonRef = useRef<string | undefined>(undefined);
   const [
     loopDetectionConfirmationRequest,
     setLoopDetectionConfirmationRequest,
   ] = useState<{
     onComplete: (result: { userSelection: 'disable' | 'keep' }) => void;
+    reason?: string;
   } | null>(null);
 
   const activePtyId = activeShellPtyId || activeToolPtyId;
@@ -1214,6 +1216,7 @@ export const useGeminiStream = (
             // handle later because we want to move pending history to history
             // before we add loop detected message to history
             loopDetectedRef.current = true;
+            loopDetectedReasonRef.current = event.value?.reason;
             break;
           case ServerGeminiEventType.Retry:
           case ServerGeminiEventType.InvalidStream:
@@ -1353,8 +1356,12 @@ export const useGeminiStream = (
               }
               if (loopDetectedRef.current) {
                 loopDetectedRef.current = false;
+                const reason = loopDetectedReasonRef.current;
+                loopDetectedReasonRef.current = undefined;
+
                 // Show the confirmation dialog to choose whether to disable loop detection
                 setLoopDetectionConfirmationRequest({
+                  reason,
                   onComplete: (result: {
                     userSelection: 'disable' | 'keep';
                   }) => {

@@ -111,6 +111,7 @@ export class LoopDetectionService {
   private contentStats = new Map<string, number[]>();
   private lastContentIndex = 0;
   private loopDetected = false;
+  private detectedLoopReason = '';
   private inCodeBlock = false;
 
   // LLM loop track tracking
@@ -145,15 +146,15 @@ export class LoopDetectionService {
   /**
    * Processes a stream event and checks for loop conditions.
    * @param event - The stream event to process
-   * @returns true if a loop is detected, false otherwise
+   * @returns the reason if a loop is detected, null otherwise
    */
-  addAndCheck(event: ServerGeminiStreamEvent): boolean {
+  addAndCheck(event: ServerGeminiStreamEvent): string | null {
     if (this.disabledForSession || this.config.getDisableLoopDetection()) {
-      return false;
+      return null;
     }
 
     if (this.loopDetected) {
-      return this.loopDetected;
+      return this.detectedLoopReason;
     }
 
     switch (event.type) {
@@ -162,14 +163,20 @@ export class LoopDetectionService {
         // is a tool call in between
         this.resetContentTracking();
         this.loopDetected = this.checkToolCallLoop(event.value);
+        if (this.loopDetected) {
+          this.detectedLoopReason = `Consecutive identical tool calls detected: ${event.value.name}`;
+        }
         break;
       case GeminiEventType.Content:
         this.loopDetected = this.checkContentLoop(event.value);
+        if (this.loopDetected) {
+          this.detectedLoopReason = `Chanting (repetitive content) detected in model output.`;
+        }
         break;
       default:
         break;
     }
-    return this.loopDetected;
+    return this.loopDetected ? this.detectedLoopReason : null;
   }
 
   /**
@@ -180,11 +187,11 @@ export class LoopDetectionService {
    * is performed periodically based on the `llmCheckInterval`.
    *
    * @param signal - An AbortSignal to allow for cancellation of the asynchronous LLM check.
-   * @returns A promise that resolves to `true` if a loop is detected, and `false` otherwise.
+   * @returns A promise that resolves to the reason if a loop is detected, and null otherwise.
    */
-  async turnStarted(signal: AbortSignal) {
+  async turnStarted(signal: AbortSignal): Promise<string | null> {
     if (this.disabledForSession || this.config.getDisableLoopDetection()) {
-      return false;
+      return null;
     }
     this.turnsInCurrentPrompt++;
 
@@ -193,10 +200,15 @@ export class LoopDetectionService {
       this.turnsInCurrentPrompt - this.lastCheckTurn >= this.llmCheckInterval
     ) {
       this.lastCheckTurn = this.turnsInCurrentPrompt;
-      return this.checkForLoopWithLLM(signal);
+      const llmReason = await this.checkForLoopWithLLM(signal);
+      if (llmReason) {
+        this.loopDetected = true;
+        this.detectedLoopReason = llmReason;
+        return llmReason;
+      }
     }
 
-    return false;
+    return null;
   }
 
   private checkToolCallLoop(toolCall: { name: string; args: object }): boolean {
@@ -442,7 +454,9 @@ export class LoopDetectionService {
     return recentHistory;
   }
 
-  private async checkForLoopWithLLM(signal: AbortSignal) {
+  private async checkForLoopWithLLM(
+    signal: AbortSignal,
+  ): Promise<string | null> {
     const recentHistory = this.config
       .getGeminiClient()
       .getHistory()
@@ -470,7 +484,7 @@ export class LoopDetectionService {
     );
 
     if (!flashResult) {
-      return false;
+      return null;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -494,7 +508,7 @@ export class LoopDetectionService {
         ),
       );
       this.updateCheckInterval(flashConfidence);
-      return false;
+      return null;
     }
 
     const availability = this.config.getModelAvailabilityService();
@@ -504,7 +518,10 @@ export class LoopDetectionService {
         model: 'loop-detection',
       }).model;
       this.handleConfirmedLoop(flashResult, flashModelName);
-      return true;
+      const analysis = flashResult['unproductive_state_analysis'];
+      return typeof analysis === 'string'
+        ? analysis
+        : 'Unproductive state detected by LLM.';
     }
 
     // Double check with configured model
@@ -532,13 +549,16 @@ export class LoopDetectionService {
     if (mainModelResult) {
       if (mainModelConfidence >= LLM_CONFIDENCE_THRESHOLD) {
         this.handleConfirmedLoop(mainModelResult, doubleCheckModelName);
-        return true;
+        const analysis = mainModelResult['unproductive_state_analysis'];
+        return typeof analysis === 'string'
+          ? analysis
+          : 'Unproductive state detected by LLM.';
       } else {
         this.updateCheckInterval(mainModelConfidence);
       }
     }
 
-    return false;
+    return null;
   }
 
   private async queryLoopDetectionModel(

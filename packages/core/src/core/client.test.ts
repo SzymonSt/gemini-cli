@@ -2866,10 +2866,10 @@ ${JSON.stringify(
 
     it('should abort linked signal when loop is detected', async () => {
       // Arrange
-      vi.spyOn(client['loopDetector'], 'turnStarted').mockResolvedValue(false);
+      vi.spyOn(client['loopDetector'], 'turnStarted').mockResolvedValue(null);
       vi.spyOn(client['loopDetector'], 'addAndCheck')
-        .mockReturnValueOnce(false)
-        .mockReturnValueOnce(true);
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce('Repetitive behavior detected');
 
       let capturedSignal: AbortSignal;
       mockTurnRunFn.mockImplementation((_modelConfigKey, _request, signal) => {
@@ -2901,7 +2901,10 @@ ${JSON.stringify(
       }
 
       // Assert
-      expect(events).toContainEqual({ type: GeminiEventType.LoopDetected });
+      expect(events).toContainEqual({
+        type: GeminiEventType.LoopDetected,
+        value: { reason: expect.any(String) },
+      });
       expect(capturedSignal!.aborted).toBe(true);
     });
   });

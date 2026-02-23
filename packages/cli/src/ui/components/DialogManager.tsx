@@ -181,6 +181,7 @@ export const DialogManager = ({
     return (
       <LoopDetectionConfirmation
         onComplete={uiState.loopDetectionConfirmationRequest.onComplete}
+        reason={uiState.loopDetectionConfirmationRequest.reason}
       />
     );
   }

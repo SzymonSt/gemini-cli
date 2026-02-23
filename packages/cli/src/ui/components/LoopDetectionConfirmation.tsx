@@ -16,10 +16,12 @@ export type LoopDetectionConfirmationResult = {
 
 interface LoopDetectionConfirmationProps {
   onComplete: (result: LoopDetectionConfirmationResult) => void;
+  reason?: string;
 }
 
 export function LoopDetectionConfirmation({
   onComplete,
+  reason,
 }: LoopDetectionConfirmationProps) {
   useKeypress(
     (key) => {
@@ -78,9 +80,11 @@ export function LoopDetectionConfirmation({
           <Box marginTop={1}>
             <Box flexDirection="column">
               <Text color={theme.text.secondary}>
-                This can happen due to repetitive tool calls or other model
-                behavior. Do you want to keep loop detection enabled or disable
-                it for this session?
+                {reason
+                  ? `Reason: ${reason}`
+                  : 'This can happen due to repetitive tool calls or other model behavior.'}{' '}
+                Do you want to keep loop detection enabled or disable it for
+                this session?
               </Text>
               <Box marginTop={1}>
                 <RadioButtonSelect items={OPTIONS} onSelect={onComplete} />
