@@ -455,8 +455,6 @@ You are operating in **Plan Mode**. Your goal is to produce a detailed implement
 The following read-only tools are available in Plan Mode:
 <available_tools>
 ${options.planModeToolsList}
-  <tool>${formatToolName(WRITE_FILE_TOOL_NAME)} - Save plans to the plans directory</tool>
-  <tool>${formatToolName(EDIT_TOOL_NAME)} - Update plans in the plans directory</tool>
 </available_tools>
 
 ## Rules

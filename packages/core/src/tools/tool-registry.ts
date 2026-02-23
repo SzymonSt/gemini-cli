@@ -22,11 +22,11 @@ import { safeJsonStringify } from '../utils/safeJsonStringify.js';
 import type { MessageBus } from '../confirmation-bus/message-bus.js';
 import { debugLogger } from '../utils/debugLogger.js';
 import { coreEvents } from '../utils/events.js';
+import { isAllowedInPlanMode } from '../utils/tool-utils.js';
 import {
   DISCOVERED_TOOL_PREFIX,
   TOOL_LEGACY_ALIASES,
   getToolAliases,
-  PLAN_MODE_TOOLS,
   WRITE_FILE_TOOL_NAME,
   EDIT_TOOL_NAME,
 } from './tool-names.js';
@@ -490,28 +490,9 @@ export class ToolRegistry {
       this.expandExcludeToolsWithAliases(this.config.getExcludeTools()) ??
       new Set([]);
 
-    // Filter tools in Plan Mode to only allow approved read-only tools.
-    const isPlanMode =
-      typeof this.config.getApprovalMode === 'function' &&
-      this.config.getApprovalMode() === ApprovalMode.PLAN;
-    if (isPlanMode) {
-      const allowedToolNames = new Set<string>(PLAN_MODE_TOOLS);
-      // We allow write_file and replace for writing plans specifically.
-      allowedToolNames.add(WRITE_FILE_TOOL_NAME);
-      allowedToolNames.add(EDIT_TOOL_NAME);
-
-      // Discovered MCP tools are allowed if they are read-only.
-      if (
-        tool instanceof DiscoveredMCPTool &&
-        tool.isReadOnly &&
-        !allowedToolNames.has(tool.name)
-      ) {
-        allowedToolNames.add(tool.name);
-      }
-
-      if (!allowedToolNames.has(tool.name)) {
-        return false;
-      }
+    const isPlanMode = this.config.getApprovalMode?.() === ApprovalMode.PLAN;
+    if (isPlanMode && !isAllowedInPlanMode(tool)) {
+      return false;
     }
 
     const normalizedClassName = tool.constructor.name.replace(/^_+/, '');

@@ -83,8 +83,16 @@ describe('Core System Prompt (prompts.ts)', () => {
     vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', undefined);
     mockConfig = {
       getToolRegistry: vi.fn().mockReturnValue({
-        getAllToolNames: vi.fn().mockReturnValue(['grep_search', 'glob']),
-        getAllTools: vi.fn().mockReturnValue([]),
+        getAllToolNames: vi
+          .fn()
+          .mockReturnValue(['grep_search', 'glob', 'read_file']),
+        getAllTools: vi
+          .fn()
+          .mockReturnValue([
+            { name: 'grep_search' },
+            { name: 'glob' },
+            { name: 'read_file' },
+          ]),
       }),
       getEnableShellOutputEfficiency: vi.fn().mockReturnValue(true),
       storage: {
@@ -483,11 +491,13 @@ describe('Core System Prompt (prompts.ts)', () => {
     it('should only list available tools in PLAN mode', () => {
       vi.mocked(mockConfig.getApprovalMode).mockReturnValue(ApprovalMode.PLAN);
       // Only enable a subset of tools, including ask_user
-      vi.mocked(mockConfig.getToolRegistry().getAllToolNames).mockReturnValue([
-        'glob',
-        'read_file',
-        'ask_user',
-      ]);
+      const enabledNames = ['glob', 'read_file', 'ask_user'];
+      vi.mocked(mockConfig.getToolRegistry().getAllToolNames).mockReturnValue(
+        enabledNames,
+      );
+      vi.mocked(mockConfig.getToolRegistry().getAllTools).mockReturnValue(
+        enabledNames.map((name) => ({ name })) as AnyDeclarativeTool[],
+      );
 
       const prompt = getCoreSystemPrompt(mockConfig);
 
